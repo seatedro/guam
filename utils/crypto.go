@@ -2,7 +2,9 @@ package utils
 
 import (
 	"crypto/rand"
-	"golang.org/x/crypto/scrypt"
+	"fmt"
+	"golang.org/x/text/unicode/norm"
+	"guam/scrypt"
 	"math/big"
 )
 
@@ -25,22 +27,37 @@ func GenerateRandomString(length int, alphabet string) (string, error) {
 	return result, nil
 }
 
-type ScryptOptions struct {
-	N     int
-	R     int
-	P     int
-	DkLen int
+func GenerateScryptHash(s string) string {
+	salt, err := GenerateRandomString(16, "")
+	if err != nil {
+		panic(err)
+	}
+
+	key := hashWithScrypt(norm.NFKC.String(s), salt, 16)
+
+	return fmt.Sprintf("s2:%s:%s", salt, key)
 }
 
-func Scrypt(password, salt []byte, options ScryptOptions) ([]byte, error) {
-	if options.DkLen == 0 {
-		options.DkLen = 32
+func hashWithScrypt(s, salt string, blockSize int) string {
+	options := scrypt.ScryptOptions{
+		N:     16384,
+		R:     blockSize,
+		P:     1,
+		DkLen: 64,
 	}
-
-	key, err := scrypt.Key(password, salt, options.N, options.R, options.P, options.DkLen)
+	key, err := scrypt.Scrypt([]byte(s), []byte(salt), options)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return key, nil
+	return ConvertByteSliceToHex(key)
+}
+
+func ConvertByteSliceToHex(arr []byte) string {
+	hexStr := ""
+	for _, b := range arr {
+		hexStr += fmt.Sprintf("%02x", b)
+	}
+
+	return hexStr
 }
