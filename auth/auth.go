@@ -213,7 +213,7 @@ type SessionContext struct {
 
 func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context SessionContext) Session {
 	attributes := a.GetSessionAttributes(databaseSession)
-	active := isWithinExpiration(databaseSession.ActiveExpires)
+	active := IsWithinExpiration(databaseSession.ActiveExpires)
 
 	activePeriodExpiresAt := time.Unix(0, databaseSession.ActiveExpires*int64(time.Millisecond))
 	idlePeriodExpiresAt := time.Unix(0, databaseSession.IdleExpires*int64(time.Millisecond))
@@ -235,6 +235,71 @@ func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context S
 	}
 }
 
-func isWithinExpiration(expiration int64) bool {
+func IsWithinExpiration(expiration int64) bool {
 	return time.Now().Before(time.Unix(0, expiration*int64(time.Millisecond)))
+}
+
+func (a *Auth) getDatabaseUser(userId string) (*UserSchema, error) {
+	user, err := a.Adapter.GetUser(userId)
+	if err != nil {
+		return &UserSchema{}, err
+	}
+	return user, nil
+}
+
+func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
+	session, err := a.Adapter.GetSession(sessionId)
+	if err != nil {
+		return &SessionSchema{}, err
+	}
+	if !isValidDatabaseSession(session) {
+		log.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
+		return &SessionSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
+	}
+	return session, nil
+}
+
+func (a *Auth) getDatabaseSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error) {
+	if a.Adapter.GetSessionAndUser != nil {
+		session, user, err := a.Adapter.GetSessionAndUser(sessionId)
+		if err != nil {
+			return &SessionSchema{}, &UserSchema{}, err
+		}
+		if !isValidDatabaseSession(session) {
+			log.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
+			return &SessionSchema{}, &UserSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
+		}
+		return session, user, nil
+	}
+	session, err := a.getDatabaseSession(sessionId)
+	if err != nil {
+		return &SessionSchema{}, &UserSchema{}, err
+	}
+	user, err := a.getDatabaseUser(session.UserID)
+	if err != nil {
+		return &SessionSchema{}, &UserSchema{}, err
+	}
+
+	return session, user, nil
+}
+
+func (a *Auth) validateSessionIdArgument(sessionId string) error {
+	if sessionId == "" {
+		return errors.New("AUTH_INVALID_SESSION_ID")
+	}
+	return nil
+}
+
+func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64, int64) {
+	var activePeriod, idlePeriod int
+	if sessionExpiresIn != nil {
+		activePeriod = sessionExpiresIn.ActivePeriod
+		idlePeriod = sessionExpiresIn.IdlePeriod
+	} else {
+		activePeriod = a.SessionExpiresIn.ActivePeriod
+		idlePeriod = a.SessionExpiresIn.IdlePeriod
+	}
+	activeExpires := time.Now().Add(time.Duration(activePeriod)*time.Millisecond).UnixNano() / int64(time.Millisecond)
+	idleExpires := time.Now().Add(time.Duration(idlePeriod)*time.Millisecond).UnixNano() / int64(time.Millisecond)
+	return activeExpires, idleExpires
 }
