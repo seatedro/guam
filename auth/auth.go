@@ -303,3 +303,32 @@ func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64,
 	idleExpires := time.Now().Add(time.Duration(idlePeriod)*time.Millisecond).UnixNano() / int64(time.Millisecond)
 	return activeExpires, idleExpires
 }
+
+func (a *Auth) GetUser(userId string) (*User, error) {
+	userSchema, err := a.getDatabaseUser(userId)
+	if err != nil {
+		return &User{}, err
+	}
+	user := a.TransformDatabaseUser(*userSchema)
+	return &user, nil
+}
+
+type CreateUserKey struct {
+	providerId     string
+	providerUserId string
+	password       *string
+}
+type CreateUserOptions struct {
+	userId     *string
+	key        *CreateUserKey
+	attributes DatabaseUserAttributes
+}
+
+func (a *Auth) CreateUser(options CreateUserOptions) {
+	var userId string
+	if options.userId != nil {
+		userId = *options.userId
+	} else {
+		userId = uuid.New().String()
+	}
+}
