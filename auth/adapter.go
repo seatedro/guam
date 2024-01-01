@@ -51,8 +51,9 @@ func CreateAdapter(adapter interface{}) Adapter {
 			SessionAdapter: sessionAdapter,
 		}
 	}
-}
 
+	return nil
+}
 func (ca *CombinedAdapter) GetSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error) {
 	return nil, nil, nil
 }
