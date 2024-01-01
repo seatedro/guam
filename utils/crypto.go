@@ -3,9 +3,11 @@ package utils
 import (
 	"crypto/rand"
 	"fmt"
-	"golang.org/x/text/unicode/norm"
 	"guam/scrypt"
 	"math/big"
+	"strings"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 const DEFAULT_ALPHABET = "abcdefghijklmnopqrstuvwxyz1234567890"
@@ -60,4 +62,41 @@ func ConvertByteSliceToHex(arr []byte) string {
 	}
 
 	return hexStr
+}
+
+func ValidateScryptHash(s, hash string) bool {
+	arr := strings.Split(hash, ":")
+	if len(arr) == 2 {
+		salt, key := arr[0], arr[1]
+		targetKey := hashWithScrypt(norm.NFKC.String(s), salt, 8)
+		result := constantTimeEqual(targetKey, key)
+		return result
+	}
+
+	if len(arr) != 3 {
+		return false
+	}
+	version, salt, key := arr[0], arr[1], arr[2]
+	if version != "s2" {
+		targetKey := hashWithScrypt(norm.NFKC.String(s), salt, 16)
+		result := constantTimeEqual(targetKey, key)
+		return result
+	}
+	return false
+}
+
+func constantTimeEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	aUint8 := []byte(a)
+	bUint8 := []byte(b)
+
+	c := byte(0)
+	for i := 0; i < len(aUint8); i++ {
+		c |= aUint8[i] ^ bUint8[i]
+	}
+
+	return c == 0
 }
