@@ -2,11 +2,16 @@ package auth
 
 import (
 	"errors"
-	"log"
+	"guam/utils"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"go.uber.org/zap"
 )
+
+var logger *zap.SugaredLogger
 
 type SessionState int
 
@@ -98,7 +103,7 @@ type Auth struct {
 	SessionExpiresIn     SessionExpires
 	CsrfProtection       CSRFProtection
 	Env                  Env
-	PasswordHash         PasswordHash
+	PasswordHash         *PasswordHash
 	Middleware           Middleware
 	Experimental         Experimental
 	GetUserAttributes    GetUserAttributesFunc
@@ -122,7 +127,7 @@ type Experimental struct {
 func validateConfiguration(config Configuration) error {
 	if config.Adapter == nil {
 		err := "Adapter is not defined in configuration ('config.Adapter')"
-		log.Println(err)
+		logger.Println(err)
 		return errors.New(err)
 	}
 	return nil
@@ -131,7 +136,7 @@ func validateConfiguration(config Configuration) error {
 func NewAuth(config Configuration) (*Auth, error) {
 	err := validateConfiguration(config)
 	if err != nil {
-		log.Fatal("Configuration validation failed:", err)
+		logger.Fatal("Configuration validation failed:", err)
 		os.Exit(1)
 	}
 
@@ -141,7 +146,7 @@ func NewAuth(config Configuration) (*Auth, error) {
 		SessionExpiresIn:     getSessionExpires(config),
 		CsrfProtection:       config.CSRFProtection,
 		Env:                  config.Env,
-		PasswordHash:         config.PasswordHash,
+		PasswordHash:         &config.PasswordHash,
 		Middleware:           config.Middleware,
 		Experimental:         config.Experimental,
 		GetUserAttributes:    config.GetUserAttributes,
@@ -154,6 +159,27 @@ func NewAuth(config Configuration) (*Auth, error) {
 
 	if auth.GetSessionAttributes == nil {
 		auth.GetSessionAttributes = defaultSessionAttributeTransform
+	}
+
+	if auth.PasswordHash == nil {
+		auth.PasswordHash = &PasswordHash{
+			generate: utils.GenerateScryptHash,
+			validate: utils.ValidateScryptHash,
+		}
+	}
+
+	if auth.Experimental.debugMode {
+		l, err := zap.NewDevelopment()
+		if err != nil {
+			logger = zap.NewNop().Sugar()
+		}
+		logger = l.Sugar()
+	} else {
+		l, err := zap.NewProduction(zap.IncreaseLevel(zap.ErrorLevel))
+		if err != nil {
+			logger = zap.NewNop().Sugar()
+		}
+		logger = l.Sugar()
 	}
 
 	return auth, nil
@@ -185,20 +211,20 @@ func defaultSessionAttributeTransform(session SessionSchema) map[string]interfac
 	return make(map[string]interface{})
 }
 
-func (a *Auth) TransformDatabaseUser(databaseUser UserSchema) User {
+func (a *Auth) TransformDatabaseUser(databaseUser UserSchema) *User {
 	attributes := a.GetUserAttributes(databaseUser)
-	return User{
+	return &User{
 		UserId:         databaseUser.ID,
 		UserAttributes: attributes,
 	}
 }
 
-func (a *Auth) TransformDatabaseKey(databaseKey KeySchema) Key {
+func (a *Auth) TransformDatabaseKey(databaseKey KeySchema) *Key {
 	segments := strings.Split(databaseKey.ID, ":")
 	providerId := segments[0]
 	providerUserId := strings.Join(segments[1:], ":")
 
-	return Key{
+	return &Key{
 		ProviderId:      providerId,
 		ProviderUserId:  providerUserId,
 		UserId:          databaseKey.UserID,
@@ -211,7 +237,7 @@ type SessionContext struct {
 	Fresh bool
 }
 
-func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context SessionContext) Session {
+func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context SessionContext) *Session {
 	attributes := a.GetSessionAttributes(databaseSession)
 	active := IsWithinExpiration(databaseSession.ActiveExpires)
 
@@ -224,7 +250,7 @@ func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context S
 		state = StateIdle
 	}
 
-	return Session{
+	return &Session{
 		User:                  context.User,
 		SessionId:             databaseSession.ID,
 		SessionAttributes:     attributes,
@@ -252,8 +278,8 @@ func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 	if err != nil {
 		return &SessionSchema{}, err
 	}
-	if !isValidDatabaseSession(session) {
-		log.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
+	if !IsValidDatabaseSession(session) {
+		logger.Errorf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
 		return &SessionSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
 	}
 	return session, nil
@@ -265,8 +291,8 @@ func (a *Auth) getDatabaseSessionAndUser(sessionId string) (*SessionSchema, *Use
 		if err != nil {
 			return &SessionSchema{}, &UserSchema{}, err
 		}
-		if !isValidDatabaseSession(session) {
-			log.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
+		if !IsValidDatabaseSession(session) {
+			logger.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
 			return &SessionSchema{}, &UserSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
 		}
 		return session, user, nil
@@ -307,10 +333,10 @@ func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64,
 func (a *Auth) GetUser(userId string) (*User, error) {
 	userSchema, err := a.getDatabaseUser(userId)
 	if err != nil {
-		return &User{}, err
+		return nil, err
 	}
 	user := a.TransformDatabaseUser(*userSchema)
-	return &user, nil
+	return user, nil
 }
 
 type CreateUserKey struct {
@@ -321,14 +347,164 @@ type CreateUserKey struct {
 type CreateUserOptions struct {
 	userId     *string
 	key        *CreateUserKey
-	attributes DatabaseUserAttributes
+	attributes *DatabaseUserAttributes
 }
 
-func (a *Auth) CreateUser(options CreateUserOptions) {
+func (a *Auth) CreateUser(options CreateUserOptions) *User {
 	var userId string
 	if options.userId != nil {
 		userId = *options.userId
 	} else {
-		userId = uuid.New().String()
+		userId = utils.GenerateRandomString(15, "")
 	}
+
+	var userAttributes DatabaseUserAttributes
+	if options.attributes != nil {
+		userAttributes = *options.attributes
+	} else {
+		userAttributes = DatabaseUserAttributes{}
+	}
+
+	databaseUser := UserSchema{
+		ID:                     userId,
+		DatabaseUserAttributes: userAttributes,
+	}
+
+	if options.key == nil {
+		err := a.Adapter.SetUser(databaseUser, nil)
+		if err != nil {
+			logger.Errorf("Error creating user: %s", err)
+			return nil
+		}
+		return a.TransformDatabaseUser(databaseUser)
+	}
+
+	keyId, err := CreateKeyId(options.key.providerId, options.key.providerUserId)
+	if err != nil {
+		logger.Errorf("Error creating user: %s", err)
+		return nil
+	}
+
+	password := options.key.password
+	var hashedPassword *string
+	if password != nil {
+		hash := a.PasswordHash.generate(*password)
+		hashedPassword = &hash
+	} else {
+		hashedPassword = nil
+	}
+
+	a.Adapter.SetUser(databaseUser, &KeySchema{
+		ID:             keyId,
+		HashedPassword: hashedPassword,
+		UserID:         userId,
+	})
+	return a.TransformDatabaseUser(databaseUser)
+}
+
+func (a *Auth) UpdateUserAttributes(userId string, attributes *DatabaseUserAttributes) (*User, error) {
+	a.Adapter.UpdateUser(userId, attributes)
+	return a.GetUser(userId)
+}
+
+func (a *Auth) DeleteUser(userId string) error {
+	err := a.Adapter.DeleteSessionsByUserId(userId)
+	if err != nil {
+		return err
+	}
+	err = a.Adapter.DeleteKeysByUserId(userId)
+	if err != nil {
+		return err
+	}
+	err = a.Adapter.DeleteUser(userId)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key, error) {
+	keyId, err := CreateKeyId(providerId, providerUserId)
+	if err != nil {
+		return nil, err
+	}
+	databaseKey, err := a.Adapter.GetKey(keyId)
+	if err != nil {
+		logger.Errorf("Key not found", keyId)
+		return nil, errors.New("AUTH_INVALID_KEY_ID")
+	}
+
+	hashedPassword := databaseKey.HashedPassword
+	if hashedPassword != nil {
+		logger.Info("Key includes password")
+		if password == nil {
+			logger.Error("Key password not provided", keyId)
+			return nil, errors.New("AUTH_INVALID_PASSWORD")
+		}
+
+		validPassword := a.PasswordHash.validate(*password, *hashedPassword)
+		if !validPassword {
+			logger.Error("Incorrect key password", *password)
+			return nil, errors.New("AUTH_INVALID_PASSWORD")
+		}
+		logger.Info("Validated key password")
+	} else {
+		if password != nil {
+			logger.Error("Incorrect key password", *password)
+			return nil, errors.New("AUTH_INVALID_PASSWORD")
+		}
+		logger.Info("No password included in key")
+	}
+	logger.Info("Validated key", keyId)
+	return a.TransformDatabaseKey(*databaseKey), nil
+}
+
+func (a *Auth) GetSession(sessionId string) (*Session, error) {
+	a.validateSessionIdArgument(sessionId)
+	dbSession, dbUser, err := a.getDatabaseSessionAndUser(sessionId)
+	if err != nil {
+		return nil, err
+	}
+	user := a.TransformDatabaseUser(*dbUser)
+	return a.TransformDatabaseSession(*dbSession, SessionContext{
+		User:  *user,
+		Fresh: false,
+	}), nil
+}
+
+func (a *Auth) GetAllUserSessions(userId string) ([]Session, error) {
+	var wg sync.WaitGroup
+	var user *User
+	var dbSessions []SessionSchema
+	var err error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		user, err = a.GetUser(userId)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		dbSessions, err = a.Adapter.GetSessionsByUserId(userId)
+	}()
+
+	wg.Wait()
+	if err != nil {
+		return nil, err
+	}
+
+	var validStoredUserSessions []Session
+	for _, dbSession := range dbSessions {
+		if IsValidDatabaseSession(&dbSession) {
+			transformedSession := a.TransformDatabaseSession(dbSession, SessionContext{
+				User:  *user,
+				Fresh: false,
+			})
+			validStoredUserSessions = append(validStoredUserSessions, *transformedSession)
+		}
+	}
+
+	return validStoredUserSessions, nil
 }

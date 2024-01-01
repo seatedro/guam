@@ -12,7 +12,7 @@ import (
 
 const DEFAULT_ALPHABET = "abcdefghijklmnopqrstuvwxyz1234567890"
 
-func GenerateRandomString(length int, alphabet string) (string, error) {
+func GenerateRandomString(length int, alphabet string) string {
 	if alphabet == "" {
 		alphabet = DEFAULT_ALPHABET
 	}
@@ -21,19 +21,16 @@ func GenerateRandomString(length int, alphabet string) (string, error) {
 	for i := 0; i < length; i++ {
 		index, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
 		if err != nil {
-			return "", err
+			return ""
 		}
 		result += string(alphabet[index.Int64()])
 	}
 
-	return result, nil
+	return result
 }
 
 func GenerateScryptHash(s string) string {
-	salt, err := GenerateRandomString(16, "")
-	if err != nil {
-		panic(err)
-	}
+	salt := GenerateRandomString(16, "")
 
 	key := hashWithScrypt(norm.NFKC.String(s), salt, 16)
 

@@ -13,14 +13,17 @@ type Adapter interface {
 type UserAdapter interface {
 	GetUser(userId string) (*UserSchema, error)
 	SetUser(user UserSchema, key *KeySchema) error
-	UpdateUser(user UserSchema, partialUser UserSchema) error
-	DeleteUser(user UserSchema) error
+	UpdateUser(userId string, attributes *DatabaseUserAttributes) error
+	DeleteUser(userId string) error
+	DeleteKeysByUserId(userId string) error
+	GetKey(keyId string) (*KeySchema, error)
 }
 
 type SessionAdapter interface {
 	GetSession(sessionId string) (*SessionSchema, error)
 	GetSessionsByUserId(userId string) ([]SessionSchema, error)
 	SetSession(session SessionSchema) error
+	DeleteSessionsByUserId(userId string) error
 }
 
 type AdapterInitializer func(errorConstructor GuamErrorConstructor) Adapter
