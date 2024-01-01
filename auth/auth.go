@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -43,15 +44,17 @@ type User struct {
 	UserAttributes map[string]interface{}
 }
 
+type GetUserAttributesFunc func(databaseUser UserSchema) map[string]interface{}
+type GetSessionAttributesFunc func(databaseSession SessionSchema) map[string]interface{}
 type Configuration struct {
 	Adapter              Adapter
 	Env                  Env // Assuming Env is defined elsewhere
 	Middleware           Middleware
 	CSRFProtection       CSRFProtection
-	SessionExpiresIn     SessionExpires
+	SessionExpiresIn     *SessionExpires
 	SessionCookie        SessionCookieConfiguration
-	GetSessionAttributes func(SessionSchema) map[string]interface{}
-	GetUserAttributes    func(UserSchema) map[string]interface{}
+	GetSessionAttributes GetSessionAttributesFunc
+	GetUserAttributes    GetUserAttributesFunc
 	PasswordHash         PasswordHash
 	Experimental         Experimental
 }
@@ -90,20 +93,21 @@ type CSRFProtection struct {
 }
 
 type Auth struct {
-	adapter             Adapter
-	sessionCookieConfig SessionCookieConfiguration
-	sessionExpiresIn    SessionExpires
-	csrfProtection      CSRFProtection
-	env                 Env
-	passwordHash        PasswordHash
-	middleware          Middleware
-	experimental        Experimental
-	// other fields
+	Adapter              Adapter
+	SessionCookieConfig  SessionCookieConfiguration
+	SessionExpiresIn     SessionExpires
+	CsrfProtection       CSRFProtection
+	Env                  Env
+	PasswordHash         PasswordHash
+	Middleware           Middleware
+	Experimental         Experimental
+	GetUserAttributes    GetUserAttributesFunc
+	GetSessionAttributes GetSessionAttributesFunc
 }
 
 type SessionExpires struct {
-	activePeriod int
-	idlewPeriod  int
+	ActivePeriod int
+	IdlePeriod   int
 }
 
 type PasswordHash struct {
@@ -124,21 +128,113 @@ func validateConfiguration(config Configuration) error {
 	return nil
 }
 
-func NewAuth(config Configuration) *Auth {
+func NewAuth(config Configuration) (*Auth, error) {
 	err := validateConfiguration(config)
 	if err != nil {
 		log.Fatal("Configuration validation failed:", err)
 		os.Exit(1)
 	}
 
-	return &Auth{
-		adapter:             config.Adapter,
-		sessionCookieConfig: config.SessionCookie,
-		sessionExpiresIn:    config.SessionExpiresIn,
-		csrfProtection:      config.CSRFProtection,
-		env:                 config.Env,
-		passwordHash:        config.PasswordHash,
-		middleware:          config.Middleware,
-		experimental:        config.Experimental,
+	auth := &Auth{
+		Adapter:              config.Adapter,
+		SessionCookieConfig:  config.SessionCookie,
+		SessionExpiresIn:     getSessionExpires(config),
+		CsrfProtection:       config.CSRFProtection,
+		Env:                  config.Env,
+		PasswordHash:         config.PasswordHash,
+		Middleware:           config.Middleware,
+		Experimental:         config.Experimental,
+		GetUserAttributes:    config.GetUserAttributes,
+		GetSessionAttributes: config.GetSessionAttributes,
 	}
+
+	if auth.GetUserAttributes == nil {
+		auth.GetUserAttributes = defaultUserAttributeTransform
+	}
+
+	if auth.GetSessionAttributes == nil {
+		auth.GetSessionAttributes = defaultSessionAttributeTransform
+	}
+
+	return auth, nil
+}
+
+func getSessionExpires(config Configuration) SessionExpires {
+	activePeriod := 24 * time.Hour
+	idlePeriod := 14 * 24 * time.Hour
+
+	if config.SessionExpiresIn != nil {
+		if config.SessionExpiresIn.ActivePeriod != 0 {
+			activePeriod = time.Duration(config.SessionExpiresIn.ActivePeriod) * time.Millisecond
+		}
+		if config.SessionExpiresIn.IdlePeriod != 0 {
+			idlePeriod = time.Duration(config.SessionExpiresIn.IdlePeriod) * time.Millisecond
+		}
+	}
+	return SessionExpires{
+		ActivePeriod: int(activePeriod),
+		IdlePeriod:   int(idlePeriod),
+	}
+}
+
+func defaultUserAttributeTransform(user UserSchema) map[string]interface{} {
+	return make(map[string]interface{})
+}
+
+func defaultSessionAttributeTransform(session SessionSchema) map[string]interface{} {
+	return make(map[string]interface{})
+}
+
+func (a *Auth) TransformDatabaseUser(databaseUser UserSchema) User {
+	attributes := a.GetUserAttributes(databaseUser)
+	return User{
+		UserId:         databaseUser.ID,
+		UserAttributes: attributes,
+	}
+}
+
+func (a *Auth) TransformDatabaseKey(databaseKey KeySchema) Key {
+	segments := strings.Split(databaseKey.ID, ":")
+	providerId := segments[0]
+	providerUserId := strings.Join(segments[1:], ":")
+
+	return Key{
+		ProviderId:      providerId,
+		ProviderUserId:  providerUserId,
+		UserId:          databaseKey.UserID,
+		PasswordDefined: databaseKey.HashedPassword != nil,
+	}
+}
+
+type SessionContext struct {
+	User  User
+	Fresh bool
+}
+
+func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context SessionContext) Session {
+	attributes := a.GetSessionAttributes(databaseSession)
+	active := isWithinExpiration(databaseSession.ActiveExpires)
+
+	activePeriodExpiresAt := time.Unix(0, databaseSession.ActiveExpires*int64(time.Millisecond))
+	idlePeriodExpiresAt := time.Unix(0, databaseSession.IdleExpires*int64(time.Millisecond))
+	var state SessionState
+	if active {
+		state = StateActive
+	} else {
+		state = StateIdle
+	}
+
+	return Session{
+		User:                  context.User,
+		SessionId:             databaseSession.ID,
+		SessionAttributes:     attributes,
+		ActivePeriodExpiresAt: &activePeriodExpiresAt,
+		IdlePeriodExpiresAt:   &idlePeriodExpiresAt,
+		State:                 state,
+		Fresh:                 context.Fresh,
+	}
+}
+
+func isWithinExpiration(expiration int64) bool {
+	return time.Now().Before(time.Unix(0, expiration*int64(time.Millisecond)))
 }

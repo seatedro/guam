@@ -19,8 +19,8 @@ type UserSchema struct {
 
 type SessionSchema struct {
 	ID            string
-	ActiveExpires int
-	IdleExpires   int
+	ActiveExpires int64
+	IdleExpires   int64
 	UserID        string
 	DatabaseSessionAttributes
 }
