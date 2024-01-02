@@ -5,9 +5,13 @@ import (
 )
 
 type Adapter interface {
-	GetSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error)
 	UserAdapter
 	SessionAdapter
+}
+
+type AdapterWithGetter interface {
+	Adapter
+	GetSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error)
 }
 
 type UserAdapter interface {

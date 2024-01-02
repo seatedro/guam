@@ -286,8 +286,8 @@ func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 }
 
 func (a *Auth) getDatabaseSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error) {
-	if a.Adapter.GetSessionAndUser != nil {
-		session, user, err := a.Adapter.GetSessionAndUser(sessionId)
+	if ad, ok := a.Adapter.(AdapterWithGetter); ok {
+		session, user, err := ad.GetSessionAndUser(sessionId)
 		if err != nil {
 			return &SessionSchema{}, &UserSchema{}, err
 		}
