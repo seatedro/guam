@@ -3,7 +3,7 @@ package utils
 import (
 	"crypto/rand"
 	"fmt"
-	"guam/scrypt"
+	"github.com/rohitp934/guam/scrypt"
 	"math/big"
 	"strings"
 

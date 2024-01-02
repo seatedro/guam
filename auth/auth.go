@@ -2,7 +2,7 @@ package auth
 
 import (
 	"errors"
-	"guam/utils"
+	"github.com/rohitp934/guam/utils"
 	"os"
 	"strings"
 	"sync"
