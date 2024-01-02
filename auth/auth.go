@@ -53,7 +53,7 @@ type GetUserAttributesFunc func(databaseUser UserSchema) map[string]interface{}
 type GetSessionAttributesFunc func(databaseSession SessionSchema) map[string]interface{}
 type Configuration struct {
 	Adapter              Adapter
-	Env                  Env // Assuming Env is defined elsewhere
+	Env                  Env
 	Middleware           Middleware
 	CSRFProtection       CSRFProtection
 	SessionExpiresIn     *SessionExpires
@@ -127,7 +127,7 @@ type Experimental struct {
 func validateConfiguration(config Configuration) error {
 	if config.Adapter == nil {
 		err := "Adapter is not defined in configuration ('config.Adapter')"
-		logger.Println(err)
+		logger.Info(err)
 		return errors.New(err)
 	}
 	return nil
