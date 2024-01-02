@@ -1,4 +1,4 @@
-module guam
+module github.com/rohitp934/guam
 
 go 1.21.0
 
