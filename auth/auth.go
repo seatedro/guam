@@ -607,3 +607,45 @@ func (a *Auth) ValidateSession(sessionId string) (*Session, error) {
 	}
 	return renewedSession, nil
 }
+
+type CreateSessionOptions struct {
+	sessionId  string
+	userId     string
+	attributes map[string]any
+}
+
+func (a *Auth) CreateSession(options CreateSessionOptions) (*Session, error) {
+	activePeriodExpiresAt, idlePeriodExpiresAt := a.getNewSessionExpiration(nil)
+	userId := options.userId
+	var sessionId string
+	if options.sessionId != "" {
+		sessionId = options.sessionId
+	} else {
+		sessionId = utils.GenerateRandomString(40, "")
+	}
+	attributes := options.attributes
+	dbSession := SessionSchema{
+		ID:            sessionId,
+		UserID:        userId,
+		ActiveExpires: activePeriodExpiresAt.UnixMilli(),
+		IdleExpires:   idlePeriodExpiresAt.UnixMilli(),
+		Attributes:    attributes,
+	}
+
+	err := a.Adapter.SetSession(dbSession)
+	if err != nil {
+		logger.Errorln("Error creating session: ", sessionId)
+		return nil, err
+	}
+
+	user, err := a.GetUser(userId)
+	if err != nil {
+		logger.Errorln("Error getting user: ", userId)
+		return nil, err
+	}
+
+	return a.TransformDatabaseSession(dbSession, SessionContext{
+		User:  *user,
+		Fresh: false,
+	}), nil
+}
