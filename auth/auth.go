@@ -609,9 +609,9 @@ func (a *Auth) ValidateSession(sessionId string) (*Session, error) {
 }
 
 type CreateSessionOptions struct {
+	attributes map[string]any
 	sessionId  string
 	userId     string
-	attributes map[string]any
 }
 
 func (a *Auth) CreateSession(options CreateSessionOptions) (*Session, error) {
@@ -690,5 +690,37 @@ func (a *Auth) InvalidateAllUserSessions(userId string) error {
 		return err
 	}
 	logger.Infoln("Invalidated all user sessions: ", userId)
+	return nil
+}
+
+func (a *Auth) DeleteDeadUserSessions(userId string) error {
+	dbSessions, err := a.Adapter.GetSessionsByUserId(userId)
+	if err != nil {
+		logger.Errorln("Error getting user sessions: ", userId)
+		return err
+	}
+
+	var deadSessionIds []string
+	for _, dbSession := range dbSessions {
+		if !IsValidDatabaseSession(&dbSession) {
+			deadSessionIds = append(deadSessionIds, dbSession.ID)
+		}
+	}
+
+	// Delete all dead sessions in parallel
+	var wg sync.WaitGroup
+	for _, sessionId := range deadSessionIds {
+		wg.Add(1)
+		go func(sessionId string) {
+			defer wg.Done()
+			err = a.Adapter.DeleteSession(sessionId)
+		}(sessionId)
+	}
+	wg.Wait()
+	if err != nil {
+		logger.Errorln("Error deleting dead sessions: ", userId)
+		return err
+	}
+
 	return nil
 }
