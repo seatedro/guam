@@ -114,8 +114,8 @@ type Auth struct {
 }
 
 type SessionExpires struct {
-	ActivePeriod int
-	IdlePeriod   int
+	ActivePeriod int64
+	IdlePeriod   int64
 }
 
 type PasswordHash struct {
@@ -201,8 +201,8 @@ func getSessionExpires(config Configuration) SessionExpires {
 		}
 	}
 	return SessionExpires{
-		ActivePeriod: int(activePeriod),
-		IdlePeriod:   int(idlePeriod),
+		ActivePeriod: int64(activePeriod),
+		IdlePeriod:   int64(idlePeriod),
 	}
 }
 
@@ -245,7 +245,7 @@ func (a *Auth) TransformDatabaseSession(
 	context SessionContext,
 ) *Session {
 	attributes := a.GetSessionAttributes(databaseSession)
-	active := IsWithinExpiration(databaseSession.ActiveExpires)
+	active := utils.IsWithinExpiration(databaseSession.ActiveExpires)
 
 	activePeriodExpiresAt := time.Unix(0, databaseSession.ActiveExpires*int64(time.Millisecond))
 	idlePeriodExpiresAt := time.Unix(0, databaseSession.IdleExpires*int64(time.Millisecond))
@@ -267,14 +267,11 @@ func (a *Auth) TransformDatabaseSession(
 	}
 }
 
-func IsWithinExpiration(expiration int64) bool {
-	return time.Now().Before(time.Unix(0, expiration*int64(time.Millisecond)))
-}
-
 func (a *Auth) getDatabaseUser(userId string) (*UserSchema, error) {
 	user, err := a.Adapter.GetUser(userId)
 	if err != nil {
-		return &UserSchema{}, err
+		logger.Errorln("User not found: ", userId)
+		return nil, errors.New("AUTH_INVALID_USER_ID")
 	}
 	return user, nil
 }
@@ -282,14 +279,16 @@ func (a *Auth) getDatabaseUser(userId string) (*UserSchema, error) {
 func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 	session, err := a.Adapter.GetSession(sessionId)
 	if err != nil {
-		return &SessionSchema{}, err
+		logger.Errorln("Session not found: ", sessionId)
+		return nil, errors.New("AUTH_INVALID_SESSION_ID")
 	}
+
 	if !IsValidDatabaseSession(session) {
 		logger.Errorf(
 			"Session expired at %s",
 			time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
 		)
-		return &SessionSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
+		return nil, errors.New("AUTH_INVALID_SESSION_ID")
 	}
 	return session, nil
 }
@@ -300,23 +299,28 @@ func (a *Auth) getDatabaseSessionAndUser(
 	if ad, ok := a.Adapter.(AdapterWithGetter); ok {
 		session, user, err := ad.GetSessionAndUser(sessionId)
 		if err != nil {
-			return nil, nil, err
+			logger.Errorln("Session not found: ", sessionId)
+			return nil, nil, errors.New("AUTH_INVALID_SESSION_ID")
 		}
+
 		if !IsValidDatabaseSession(session) {
-			logger.Fatalf(
+			logger.Errorf(
 				"Session expired at %s",
 				time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
 			)
 			return nil, nil, errors.New("AUTH_INVALID_SESSION_ID")
 		}
+
 		return session, user, nil
 	}
 	session, err := a.getDatabaseSession(sessionId)
 	if err != nil {
+		logger.Errorln("Session not found: ", sessionId)
 		return nil, nil, err
 	}
 	user, err := a.getDatabaseUser(session.UserID)
 	if err != nil {
+		logger.Errorln("User not found: ", session.UserID)
 		return nil, nil, err
 	}
 
@@ -332,11 +336,13 @@ func (a *Auth) validateSessionIdArgument(sessionId string) error {
 	if sessionId == "" {
 		return errors.New("AUTH_INVALID_SESSION_ID")
 	}
+
 	return nil
 }
 
-func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64, int64) {
-	var activePeriod, idlePeriod int
+func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (time.Time, time.Time) {
+	var activePeriod, idlePeriod int64
+
 	if sessionExpiresIn != nil {
 		activePeriod = sessionExpiresIn.ActivePeriod
 		idlePeriod = sessionExpiresIn.IdlePeriod
@@ -345,23 +351,24 @@ func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64,
 		idlePeriod = a.SessionExpiresIn.IdlePeriod
 	}
 	activeExpires := time.Now().
-		Add(time.Duration(activePeriod)*time.Millisecond).
-		UnixNano() /
-		int64(
-			time.Millisecond,
-		)
+		Add(time.Duration(activePeriod) * time.Millisecond)
+		// UnixNano() /
+		// int64(
+		// 	time.Millisecond,
+		// )
 	idleExpires := time.Now().
-		Add(time.Duration(idlePeriod)*time.Millisecond).
-		UnixNano() /
-		int64(
-			time.Millisecond,
-		)
+		Add(time.Duration(idlePeriod) * time.Millisecond)
+		// UnixNano() /
+		// int64(
+		// 	time.Millisecond,
+		// )
 	return activeExpires, idleExpires
 }
 
 func (a *Auth) GetUser(userId string) (*User, error) {
 	userSchema, err := a.getDatabaseUser(userId)
 	if err != nil {
+		logger.Errorln("User not found: ", userId)
 		return nil, err
 	}
 	user := a.TransformDatabaseUser(*userSchema)
@@ -402,7 +409,7 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 	if options.key == nil {
 		err := a.Adapter.SetUser(databaseUser, nil)
 		if err != nil {
-			logger.Errorf("Error creating user: %s", err)
+			logger.Errorln("Error creating user")
 			return nil
 		}
 		return a.TransformDatabaseUser(databaseUser)
@@ -410,7 +417,7 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 
 	keyId, err := CreateKeyId(options.key.providerId, options.key.providerUserId)
 	if err != nil {
-		logger.Errorf("Error creating user: %s", err)
+		logger.Errorln("Error creating key id")
 		return nil
 	}
 
@@ -442,27 +449,32 @@ func (a *Auth) UpdateUserAttributes(
 func (a *Auth) DeleteUser(userId string) error {
 	err := a.Adapter.DeleteSessionsByUserId(userId)
 	if err != nil {
+		logger.Errorln("Error deleting user sessions")
 		return err
 	}
 	err = a.Adapter.DeleteKeysByUserId(userId)
 	if err != nil {
+		logger.Errorln("Error deleting user keys")
 		return err
 	}
 	err = a.Adapter.DeleteUser(userId)
 	if err != nil {
+		logger.Errorln("Error deleting user")
 		return err
 	}
+
 	return nil
 }
 
 func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key, error) {
 	keyId, err := CreateKeyId(providerId, providerUserId)
 	if err != nil {
+		logger.Errorln("Error creating key id")
 		return nil, err
 	}
 	databaseKey, err := a.Adapter.GetKey(keyId)
 	if err != nil {
-		logger.Errorf("Key not found", keyId)
+		logger.Errorln("Key not found: ", keyId)
 		return nil, errors.New("AUTH_INVALID_KEY_ID")
 	}
 
@@ -470,33 +482,40 @@ func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key
 	if hashedPassword != nil {
 		logger.Info("Key includes password")
 		if password == nil {
-			logger.Error("Key password not provided", keyId)
+			logger.Errorln("Key password not provided", keyId)
 			return nil, errors.New("AUTH_INVALID_PASSWORD")
 		}
 
 		validPassword := a.PasswordHash.validate(*password, *hashedPassword)
 		if !validPassword {
-			logger.Error("Incorrect key password", *password)
+			logger.Errorln("Incorrect key password", *password)
 			return nil, errors.New("AUTH_INVALID_PASSWORD")
 		}
-		logger.Info("Validated key password")
+		logger.Infoln("Validated key password")
 	} else {
 		if password != nil {
-			logger.Error("Incorrect key password", *password)
+			logger.Errorln("Incorrect key password", *password)
 			return nil, errors.New("AUTH_INVALID_PASSWORD")
 		}
-		logger.Info("No password included in key")
+		logger.Infoln("No password included in key")
 	}
-	logger.Info("Validated key", keyId)
+	logger.Infoln("Validated key", keyId)
 	return a.TransformDatabaseKey(*databaseKey), nil
 }
 
 func (a *Auth) GetSession(sessionId string) (*Session, error) {
-	a.validateSessionIdArgument(sessionId)
-	dbSession, dbUser, err := a.getDatabaseSessionAndUser(sessionId)
+	err := a.validateSessionIdArgument(sessionId)
 	if err != nil {
+		logger.Errorln("Invalid session id: ", sessionId)
 		return nil, err
 	}
+
+	dbSession, dbUser, err := a.getDatabaseSessionAndUser(sessionId)
+	if err != nil {
+		logger.Errorln("Error getting database session and user: ", sessionId)
+		return nil, err
+	}
+
 	user := a.TransformDatabaseUser(dbUser.UserSchema)
 	return a.TransformDatabaseSession(*dbSession, SessionContext{
 		User:  *user,
@@ -524,6 +543,7 @@ func (a *Auth) GetAllUserSessions(userId string) ([]Session, error) {
 
 	wg.Wait()
 	if err != nil {
+		logger.Errorln("Error getting user sessions: ", userId)
 		return nil, err
 	}
 
@@ -539,4 +559,51 @@ func (a *Auth) GetAllUserSessions(userId string) ([]Session, error) {
 	}
 
 	return validStoredUserSessions, nil
+}
+
+func (a *Auth) ValidateSession(sessionId string) (*Session, error) {
+	err := a.validateSessionIdArgument(sessionId)
+	if err != nil {
+		logger.Errorln("Invalid session id: ", sessionId)
+		return nil, err
+	}
+
+	dbSession, dbUser, err := a.getDatabaseSessionAndUser(sessionId)
+	if err != nil {
+		logger.Errorln("Error getting database session and user: ", sessionId)
+		return nil, err
+	}
+
+	user := a.TransformDatabaseUser(dbUser.UserSchema)
+	session := a.TransformDatabaseSession(*dbSession, SessionContext{
+		User:  *user,
+		Fresh: false,
+	})
+
+	if session.State == StateActive {
+		logger.Infoln("Validated session: ", sessionId)
+		return session, nil
+	}
+
+	activePeriodExpiresAt, idlePeriodExpiresAt := a.getNewSessionExpiration(nil)
+	err = a.Adapter.UpdateSession(sessionId, map[string]any{
+		"active_expires": activePeriodExpiresAt.UnixNano() / int64(time.Millisecond),
+		"idle_expires":   idlePeriodExpiresAt.UnixNano() / int64(time.Millisecond),
+	})
+	if err != nil {
+		logger.Errorln("Error updating session: ", sessionId)
+		return nil, err
+	}
+
+	logger.Infoln("Renewed session: ", sessionId)
+	renewedSession := &Session{
+		User:                  session.User,
+		SessionId:             session.SessionId,
+		SessionAttributes:     session.SessionAttributes,
+		ActivePeriodExpiresAt: &activePeriodExpiresAt,
+		IdlePeriodExpiresAt:   &idlePeriodExpiresAt,
+		State:                 session.State,
+		Fresh:                 true,
+	}
+	return renewedSession, nil
 }

@@ -12,11 +12,11 @@ type CookieAttributes struct {
 	Domain   *string
 	Encode   func(value string) string
 	Expires  *time.Time
-	HttpOnly bool
 	MaxAge   *int
 	Path     *string
 	Priority *string
 	SameSite *string
+	HttpOnly bool
 	Secure   bool
 }
 
@@ -80,13 +80,10 @@ func SerializeCookie(name, val string, options *CookieAttributes) (string, error
 		switch strings.ToLower(*options.Priority) {
 		case "low":
 			str += "; Priority=Low"
-			break
 		case "medium":
 			str += "; Priority=Medium"
-			break
 		case "high":
 			str += "; Priority=High"
-			break
 		default:
 			return "", errors.New("invalid priority")
 		}
@@ -97,13 +94,10 @@ func SerializeCookie(name, val string, options *CookieAttributes) (string, error
 		switch sameSite {
 		case "lax":
 			str += "; SameSite=Lax"
-			break
 		case "strict":
 			str += "; SameSite=Strict"
-			break
 		case "none":
 			str += "; SameSite=None"
-			break
 		default:
 			return "", errors.New("invalid SameSite")
 		}
