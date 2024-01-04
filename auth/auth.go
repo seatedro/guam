@@ -666,3 +666,29 @@ func (a *Auth) UpdateSessionAttributes(
 	}
 	return a.GetSession(sessionId)
 }
+
+func (a *Auth) InvalidateSession(sessionId string) error {
+	err := a.validateSessionIdArgument(sessionId)
+	if err != nil {
+		logger.Errorln("Invalid session id: ", sessionId)
+		return err
+	}
+
+	err = a.Adapter.DeleteSession(sessionId)
+	if err != nil {
+		logger.Errorln("Error deleting session: ", sessionId)
+		return err
+	}
+	logger.Infoln("Invalidated session: ", sessionId)
+	return nil
+}
+
+func (a *Auth) InvalidateAllUserSessions(userId string) error {
+	err := a.Adapter.DeleteSessionsByUserId(userId)
+	if err != nil {
+		logger.Errorln("Error deleting user sessions: ", userId)
+		return err
+	}
+	logger.Infoln("Invalidated all user sessions: ", userId)
+	return nil
+}
