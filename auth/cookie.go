@@ -1,8 +1,9 @@
 package auth
 
 import (
-	"github.com/rohitp934/guam/utils"
 	"time"
+
+	"github.com/rohitp934/guam/utils"
 )
 
 const DEFAULT_SESSION_COOKIE_NAME = "auth_session"
@@ -20,9 +21,9 @@ type SessionCookieAttributes struct {
 }
 
 type Cookie struct {
+	Attributes *utils.CookieAttributes
 	Name       string
 	Value      string
-	Attributes *utils.CookieAttributes
 }
 
 func (c *Cookie) Serialize() (string, error) {
@@ -30,8 +31,8 @@ func (c *Cookie) Serialize() (string, error) {
 }
 
 type SessionOptions struct {
-	env    Env
 	cookie SessionCookieConfiguration
+	env    Env
 }
 
 func NewSessionCookie(session *Session, options SessionOptions) *Cookie {

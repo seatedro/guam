@@ -2,11 +2,12 @@ package auth
 
 import (
 	"errors"
-	"github.com/rohitp934/guam/utils"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rohitp934/guam/utils"
 
 	"go.uber.org/zap"
 )
@@ -22,12 +23,12 @@ const (
 
 type Session struct {
 	User                  User
-	SessionId             string
 	ActivePeriodExpiresAt *time.Time
 	IdlePeriodExpiresAt   *time.Time
+	SessionAttributes     map[string]interface{}
+	SessionId             string
 	State                 SessionState
 	Fresh                 bool
-	SessionAttributes     map[string]interface{}
 }
 
 type Key struct {
@@ -45,37 +46,39 @@ const (
 )
 
 type User struct {
-	UserId         string
 	UserAttributes map[string]interface{}
+	UserId         string
 }
 
-type GetUserAttributesFunc func(databaseUser UserSchema) map[string]interface{}
-type GetSessionAttributesFunc func(databaseSession SessionSchema) map[string]interface{}
-type Configuration struct {
-	Adapter              Adapter
-	Env                  Env
-	Middleware           Middleware
-	CSRFProtection       CSRFProtection
-	SessionExpiresIn     *SessionExpires
-	SessionCookie        SessionCookieConfiguration
-	GetSessionAttributes GetSessionAttributesFunc
-	GetUserAttributes    GetUserAttributesFunc
-	PasswordHash         PasswordHash
-	Experimental         Experimental
-}
+type (
+	GetUserAttributesFunc    func(databaseUser UserSchema) map[string]interface{}
+	GetSessionAttributesFunc func(databaseSession SessionSchema) map[string]interface{}
+	Configuration            struct {
+		Adapter              Adapter
+		PasswordHash         PasswordHash
+		Middleware           Middleware
+		SessionExpiresIn     *SessionExpires
+		GetSessionAttributes GetSessionAttributesFunc
+		GetUserAttributes    GetUserAttributesFunc
+		SessionCookie        SessionCookieConfiguration
+		CSRFProtection       CSRFProtection
+		Env                  Env
+		Experimental         Experimental
+	}
+)
 
 type Middleware func(context MiddlewareContext) MiddlewareRequestContext
 
 type MiddlewareContext struct {
+	SessionCookieName string
 	Args              []interface{}
 	Env               Env
-	SessionCookieName string
 }
 
 type MiddlewareRequestContext struct {
-	SessionCookie string
-	Request       MiddlewareRequest
 	SetCookie     func(cookie Cookie)
+	Request       MiddlewareRequest
+	SessionCookie string
 }
 
 type MiddlewareRequest struct {
@@ -99,15 +102,15 @@ type CSRFProtection struct {
 
 type Auth struct {
 	Adapter              Adapter
-	SessionCookieConfig  SessionCookieConfiguration
-	SessionExpiresIn     SessionExpires
-	CsrfProtection       CSRFProtection
-	Env                  Env
 	PasswordHash         *PasswordHash
 	Middleware           Middleware
-	Experimental         Experimental
 	GetUserAttributes    GetUserAttributesFunc
 	GetSessionAttributes GetSessionAttributesFunc
+	SessionCookieConfig  SessionCookieConfiguration
+	CsrfProtection       CSRFProtection
+	SessionExpiresIn     SessionExpires
+	Env                  Env
+	Experimental         Experimental
 }
 
 type SessionExpires struct {
@@ -237,7 +240,10 @@ type SessionContext struct {
 	Fresh bool
 }
 
-func (a *Auth) TransformDatabaseSession(databaseSession SessionSchema, context SessionContext) *Session {
+func (a *Auth) TransformDatabaseSession(
+	databaseSession SessionSchema,
+	context SessionContext,
+) *Session {
 	attributes := a.GetSessionAttributes(databaseSession)
 	active := IsWithinExpiration(databaseSession.ActiveExpires)
 
@@ -279,34 +285,47 @@ func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 		return &SessionSchema{}, err
 	}
 	if !IsValidDatabaseSession(session) {
-		logger.Errorf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
+		logger.Errorf(
+			"Session expired at %s",
+			time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
+		)
 		return &SessionSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
 	}
 	return session, nil
 }
 
-func (a *Auth) getDatabaseSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error) {
+func (a *Auth) getDatabaseSessionAndUser(
+	sessionId string,
+) (*SessionSchema, *UserJoinSessionSchema, error) {
 	if ad, ok := a.Adapter.(AdapterWithGetter); ok {
 		session, user, err := ad.GetSessionAndUser(sessionId)
 		if err != nil {
-			return &SessionSchema{}, &UserSchema{}, err
+			return nil, nil, err
 		}
 		if !IsValidDatabaseSession(session) {
-			logger.Fatalf("Session expired at %s", time.Unix(0, session.IdleExpires*int64(time.Millisecond)))
-			return &SessionSchema{}, &UserSchema{}, errors.New("AUTH_INVALID_SESSION_ID")
+			logger.Fatalf(
+				"Session expired at %s",
+				time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
+			)
+			return nil, nil, errors.New("AUTH_INVALID_SESSION_ID")
 		}
 		return session, user, nil
 	}
 	session, err := a.getDatabaseSession(sessionId)
 	if err != nil {
-		return &SessionSchema{}, &UserSchema{}, err
+		return nil, nil, err
 	}
 	user, err := a.getDatabaseUser(session.UserID)
 	if err != nil {
-		return &SessionSchema{}, &UserSchema{}, err
+		return nil, nil, err
 	}
 
-	return session, user, nil
+	result := &UserJoinSessionSchema{
+		UserSchema: *user,
+		SessionID:  sessionId,
+	}
+
+	return session, result, nil
 }
 
 func (a *Auth) validateSessionIdArgument(sessionId string) error {
@@ -325,8 +344,18 @@ func (a *Auth) getNewSessionExpiration(sessionExpiresIn *SessionExpires) (int64,
 		activePeriod = a.SessionExpiresIn.ActivePeriod
 		idlePeriod = a.SessionExpiresIn.IdlePeriod
 	}
-	activeExpires := time.Now().Add(time.Duration(activePeriod)*time.Millisecond).UnixNano() / int64(time.Millisecond)
-	idleExpires := time.Now().Add(time.Duration(idlePeriod)*time.Millisecond).UnixNano() / int64(time.Millisecond)
+	activeExpires := time.Now().
+		Add(time.Duration(activePeriod)*time.Millisecond).
+		UnixNano() /
+		int64(
+			time.Millisecond,
+		)
+	idleExpires := time.Now().
+		Add(time.Duration(idlePeriod)*time.Millisecond).
+		UnixNano() /
+		int64(
+			time.Millisecond,
+		)
 	return activeExpires, idleExpires
 }
 
@@ -340,14 +369,14 @@ func (a *Auth) GetUser(userId string) (*User, error) {
 }
 
 type CreateUserKey struct {
+	password       *string
 	providerId     string
 	providerUserId string
-	password       *string
 }
 type CreateUserOptions struct {
 	userId     *string
 	key        *CreateUserKey
-	attributes *DatabaseUserAttributes
+	attributes map[string]any
 }
 
 func (a *Auth) CreateUser(options CreateUserOptions) *User {
@@ -358,16 +387,16 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 		userId = utils.GenerateRandomString(15, "")
 	}
 
-	var userAttributes DatabaseUserAttributes
+	var userAttributes map[string]any
 	if options.attributes != nil {
-		userAttributes = *options.attributes
+		userAttributes = options.attributes
 	} else {
-		userAttributes = DatabaseUserAttributes{}
+		userAttributes = map[string]any{}
 	}
 
 	databaseUser := UserSchema{
-		ID:                     userId,
-		DatabaseUserAttributes: userAttributes,
+		ID:         userId,
+		Attributes: userAttributes,
 	}
 
 	if options.key == nil {
@@ -402,7 +431,10 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 	return a.TransformDatabaseUser(databaseUser)
 }
 
-func (a *Auth) UpdateUserAttributes(userId string, attributes *DatabaseUserAttributes) (*User, error) {
+func (a *Auth) UpdateUserAttributes(
+	userId string,
+	attributes map[string]any,
+) (*User, error) {
 	a.Adapter.UpdateUser(userId, attributes)
 	return a.GetUser(userId)
 }
@@ -465,7 +497,7 @@ func (a *Auth) GetSession(sessionId string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	user := a.TransformDatabaseUser(*dbUser)
+	user := a.TransformDatabaseUser(dbUser.UserSchema)
 	return a.TransformDatabaseSession(*dbSession, SessionContext{
 		User:  *user,
 		Fresh: false,

@@ -11,30 +11,38 @@ type Adapter interface {
 
 type AdapterWithGetter interface {
 	Adapter
-	GetSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error)
+	GetSessionAndUser(sessionId string) (*SessionSchema, *UserJoinSessionSchema, error)
 }
 
 type UserAdapter interface {
 	GetUser(userId string) (*UserSchema, error)
 	SetUser(user UserSchema, key *KeySchema) error
-	UpdateUser(userId string, attributes *DatabaseUserAttributes) error
+	UpdateUser(userId string, partialUser map[string]any) error
 	DeleteUser(userId string) error
-	DeleteKeysByUserId(userId string) error
 	GetKey(keyId string) (*KeySchema, error)
+	GetKeysByUserId(userId string) ([]KeySchema, error)
+	SetKey(key KeySchema) error
+	UpdateKey(keyId string, partialKey map[string]any) error
+	DeleteKey(keyId string) error
+	DeleteKeysByUserId(userId string) error
 }
 
 type SessionAdapter interface {
 	GetSession(sessionId string) (*SessionSchema, error)
 	GetSessionsByUserId(userId string) ([]SessionSchema, error)
 	SetSession(session SessionSchema) error
+	UpdateSession(sessionId string, partialSession map[string]any) error
+	DeleteSession(sessionId string) error
 	DeleteSessionsByUserId(userId string) error
 }
 
-type AdapterInitializer func(errorConstructor GuamErrorConstructor) Adapter
-type AdapterCompositeInitializer struct {
-	User    AdapterInitializer
-	Session AdapterInitializer
-}
+type (
+	AdapterInitializer          func(errorConstructor GuamErrorConstructor) Adapter
+	AdapterCompositeInitializer struct {
+		User    AdapterInitializer
+		Session AdapterInitializer
+	}
+)
 type GuamErrorConstructor func() error
 
 type CombinedAdapter struct {
@@ -61,7 +69,10 @@ func CreateAdapter(adapter interface{}) Adapter {
 
 	return nil
 }
-func (ca *CombinedAdapter) GetSessionAndUser(sessionId string) (*SessionSchema, *UserSchema, error) {
+
+func (ca *CombinedAdapter) GetSessionAndUser(
+	sessionId string,
+) (*SessionSchema, *UserSchema, error) {
 	return nil, nil, nil
 }
 

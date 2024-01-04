@@ -7,26 +7,28 @@ import (
 )
 
 type KeySchema struct {
-	ID             string
-	HashedPassword *string
-	UserID         string
+	ID             string  `db:"id"`
+	HashedPassword *string `db:"hashed_password"`
+	UserID         string  `db:"user_id"`
 }
 
 type UserSchema struct {
-	ID string
-	DatabaseUserAttributes
+	Attributes map[string]interface{}
+	ID         string `db:"id"`
 }
 
 type SessionSchema struct {
-	ID            string
-	ActiveExpires int64
-	IdleExpires   int64
-	UserID        string
-	DatabaseSessionAttributes
+	Attributes    map[string]interface{}
+	ID            string `db:"id"`
+	UserID        string `db:"user_id"`
+	ActiveExpires int64  `db:"active_expires"`
+	IdleExpires   int64  `db:"idle_expires"`
 }
 
-type DatabaseUserAttributes struct{}
-type DatabaseSessionAttributes struct{}
+type UserJoinSessionSchema struct {
+	UserSchema
+	SessionID string `db:"__session_id"`
+}
 
 func CreateKeyId(providerId, providerUserId string) (string, error) {
 	if strings.Contains(providerId, ":") {
