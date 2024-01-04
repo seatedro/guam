@@ -649,3 +649,20 @@ func (a *Auth) CreateSession(options CreateSessionOptions) (*Session, error) {
 		Fresh: false,
 	}), nil
 }
+
+func (a *Auth) UpdateSessionAttributes(
+	sessionId string,
+	attributes map[string]any,
+) (*Session, error) {
+	err := a.validateSessionIdArgument(sessionId)
+	if err != nil {
+		logger.Errorln("Invalid session id: ", sessionId)
+		return nil, err
+	}
+	err = a.Adapter.UpdateSession(sessionId, attributes)
+	if err != nil {
+		logger.Errorln("Error updating session: ", sessionId)
+		return nil, err
+	}
+	return a.GetSession(sessionId)
+}
