@@ -724,3 +724,53 @@ func (a *Auth) DeleteDeadUserSessions(userId string) error {
 
 	return nil
 }
+
+func (a *Auth) ReadSessionCookie(
+	cookieHeader *string,
+) *string {
+	if cookieHeader == nil {
+		logger.Debugln("No session cookie found")
+		return nil
+	}
+
+	cookies := utils.ParseCookie(*cookieHeader)
+	var sessionCookieName string
+	if a.SessionCookieConfig.Name != "" {
+		sessionCookieName = a.SessionCookieConfig.Name
+	} else {
+		sessionCookieName = DEFAULT_SESSION_COOKIE_NAME
+	}
+	sessionId, ok := cookies[sessionCookieName]
+	if ok {
+		logger.Debugln("Found session cookie: ", sessionId)
+		return &sessionId
+	}
+
+	logger.Debugln("No session cookie found")
+	return nil
+}
+
+func (a *Auth) ReadBearerToken(authorizationHeader *string) *string {
+	if authorizationHeader == nil {
+		logger.Debugln("No token authorization header found")
+		return nil
+	}
+	headerArr := strings.Split(*authorizationHeader, " ")
+	if len(headerArr) != 2 {
+		logger.Debugln("No bearer token found")
+		return nil
+	}
+	authScheme, token := headerArr[0], headerArr[1]
+	if authScheme != "Bearer" {
+		logger.Debugln("Invalid authorization header auth scheme: ", authScheme)
+		return nil
+	}
+	return &token
+}
+
+func (a *Auth) CreateSessionCookie(session *Session) Cookie {
+	return *NewSessionCookie(session, SessionOptions{
+		env:    a.Env,
+		cookie: a.SessionCookieConfig,
+	})
+}
