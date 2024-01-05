@@ -67,39 +67,6 @@ type (
 	}
 )
 
-type Middleware func(context MiddlewareContext) MiddlewareRequestContext
-
-type MiddlewareContext struct {
-	SessionCookieName string
-	Args              []interface{}
-	Env               Env
-}
-
-type MiddlewareRequestContext struct {
-	SetCookie     func(cookie Cookie)
-	Request       MiddlewareRequest
-	SessionCookie string
-}
-
-type MiddlewareRequest struct {
-	Method              string
-	URL                 string
-	Headers             Headers
-	StoredSessionCookie string
-}
-
-type Headers struct {
-	Origin        string
-	Cookie        string
-	Authorization string
-}
-
-type CSRFProtection struct {
-	Host              string
-	HostHeader        string
-	AllowedSubDomains []string
-}
-
 type Auth struct {
 	Adapter              Adapter
 	PasswordHash         *PasswordHash
@@ -774,3 +741,5 @@ func (a *Auth) CreateSessionCookie(session *Session) Cookie {
 		cookie: a.SessionCookieConfig,
 	})
 }
+
+func (a *Auth) HandleRequest()
