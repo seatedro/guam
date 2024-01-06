@@ -742,4 +742,113 @@ func (a *Auth) CreateSessionCookie(session *Session) Cookie {
 	})
 }
 
-func (a *Auth) HandleRequest()
+func (a *Auth) HandleRequest(args ...any) *AuthRequest {
+	sessionCookieName := a.SessionCookieConfig.Name
+	if sessionCookieName == "" {
+		sessionCookieName = DEFAULT_SESSION_COOKIE_NAME
+	}
+	return NewAuthRequest(*a, AuthRequestConfig{
+		csrfProtection: &a.CsrfProtection,
+		reqContext: *TransformRequestContext(a.Middleware(MiddlewareContext{
+			Args:              args,
+			Env:               a.Env,
+			SessionCookieName: sessionCookieName,
+		})),
+	})
+}
+
+type CreateKeyOptions struct {
+	password       *string
+	userId         string
+	providerId     string
+	providerUserId string
+}
+
+func (a *Auth) CreateKey(options CreateKeyOptions) *Key {
+	keyId, err := CreateKeyId(options.providerId, options.providerUserId)
+	if err != nil {
+		logger.Errorln("Error creating key id")
+		return nil
+	}
+	var hashedPassword *string
+	if options.password != nil {
+		hash := a.PasswordHash.generate(*options.password)
+		hashedPassword = &hash
+	}
+
+	userId := options.userId
+	a.Adapter.SetKey(KeySchema{
+		ID:             keyId,
+		UserID:         userId,
+		HashedPassword: hashedPassword,
+	})
+
+	return &Key{
+		ProviderId:      options.providerId,
+		ProviderUserId:  options.providerUserId,
+		UserId:          userId,
+		PasswordDefined: options.password != nil,
+	}
+}
+
+func (a *Auth) DeleteKey(providerId, providerUserId string) error {
+	keyId, err := CreateKeyId(providerId, providerUserId)
+	if err != nil {
+		logger.Errorln("Error creating key id")
+		return err
+	}
+	err = a.Adapter.DeleteKey(keyId)
+	if err != nil {
+		logger.Errorln("Error deleting key: ", keyId)
+		return err
+	}
+	return nil
+}
+
+func (a *Auth) GetKey(providerId, providerUserId string) (*Key, error) {
+	keyId, err := CreateKeyId(providerId, providerUserId)
+	if err != nil {
+		logger.Errorln("Error creating key id")
+		return nil, err
+	}
+	databaseKey, err := a.Adapter.GetKey(keyId)
+	if err != nil {
+		logger.Errorln("Key not found: ", keyId)
+		return nil, NewGuamError(AUTH_INVALID_KEY_ID, nil)
+	}
+	return a.TransformDatabaseKey(*databaseKey), nil
+}
+
+func (a *Auth) GetAllUserKeys(userId string) ([]Key, error) {
+	dbKeys, err := a.Adapter.GetKeysByUserId(userId)
+	if err != nil {
+		logger.Errorln("Error getting user keys: ", userId)
+		return nil, err
+	}
+	var userKeys []Key
+	for _, dbKey := range dbKeys {
+		userKeys = append(userKeys, *a.TransformDatabaseKey(dbKey))
+	}
+	return userKeys, nil
+}
+
+func (a *Auth) UpdateKeyPassword(
+	providerId, providerUserId string,
+	password *string,
+) (*Key, error) {
+	keyId, err := CreateKeyId(providerId, providerUserId)
+	if err != nil {
+		logger.Errorln("Error creating key id")
+		return nil, err
+	}
+	hash := a.PasswordHash.generate(*password)
+	partialKey := map[string]any{
+		"hashed_password": hash,
+	}
+	err = a.Adapter.UpdateKey(keyId, partialKey)
+	if err != nil {
+		logger.Errorln("Error updating key password: ", keyId)
+		return nil, err
+	}
+	return a.GetKey(providerId, providerUserId)
+}
