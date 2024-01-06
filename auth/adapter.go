@@ -1,9 +1,5 @@
 package auth
 
-import (
-	"errors"
-)
-
 type Adapter interface {
 	UserAdapter
 	SessionAdapter
@@ -43,7 +39,7 @@ type (
 		Session AdapterInitializer
 	}
 )
-type GuamErrorConstructor func() error
+type GuamErrorConstructor func(ErrorMessage, *string) *GuamError
 
 type CombinedAdapter struct {
 	UserAdapter
@@ -53,13 +49,13 @@ type CombinedAdapter struct {
 func CreateAdapter(adapter interface{}) Adapter {
 	// Check if adapter is a single AdapterInitializer
 	if init, ok := adapter.(AdapterInitializer); ok {
-		return init(GuamError)
+		return init(NewGuamError)
 	}
 
 	// Check if adapter is a struct with user and session initializers
 	if compositeInit, ok := adapter.(AdapterCompositeInitializer); ok {
-		userAdapter := compositeInit.User(GuamError)
-		sessionAdapter := compositeInit.Session(GuamError)
+		userAdapter := compositeInit.User(NewGuamError)
+		sessionAdapter := compositeInit.Session(NewGuamError)
 
 		return &CombinedAdapter{
 			UserAdapter:    userAdapter,
@@ -74,8 +70,4 @@ func (ca *CombinedAdapter) GetSessionAndUser(
 	sessionId string,
 ) (*SessionSchema, *UserSchema, error) {
 	return nil, nil, nil
-}
-
-func GuamError() error {
-	return errors.New("guam error")
 }

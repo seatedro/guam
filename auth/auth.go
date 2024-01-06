@@ -238,7 +238,7 @@ func (a *Auth) getDatabaseUser(userId string) (*UserSchema, error) {
 	user, err := a.Adapter.GetUser(userId)
 	if err != nil {
 		logger.Errorln("User not found: ", userId)
-		return nil, errors.New("AUTH_INVALID_USER_ID")
+		return nil, NewGuamError(AUTH_INVALID_USER_ID, nil)
 	}
 	return user, nil
 }
@@ -247,7 +247,7 @@ func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 	session, err := a.Adapter.GetSession(sessionId)
 	if err != nil {
 		logger.Errorln("Session not found: ", sessionId)
-		return nil, errors.New("AUTH_INVALID_SESSION_ID")
+		return nil, NewGuamError(AUTH_INVALID_USER_ID, nil)
 	}
 
 	if !IsValidDatabaseSession(session) {
@@ -255,7 +255,7 @@ func (a *Auth) getDatabaseSession(sessionId string) (*SessionSchema, error) {
 			"Session expired at %s",
 			time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
 		)
-		return nil, errors.New("AUTH_INVALID_SESSION_ID")
+		return nil, NewGuamError(AUTH_INVALID_USER_ID, nil)
 	}
 	return session, nil
 }
@@ -267,7 +267,7 @@ func (a *Auth) getDatabaseSessionAndUser(
 		session, user, err := ad.GetSessionAndUser(sessionId)
 		if err != nil {
 			logger.Errorln("Session not found: ", sessionId)
-			return nil, nil, errors.New("AUTH_INVALID_SESSION_ID")
+			return nil, nil, NewGuamError(AUTH_INVALID_USER_ID, nil)
 		}
 
 		if !IsValidDatabaseSession(session) {
@@ -275,7 +275,7 @@ func (a *Auth) getDatabaseSessionAndUser(
 				"Session expired at %s",
 				time.Unix(0, session.IdleExpires*int64(time.Millisecond)),
 			)
-			return nil, nil, errors.New("AUTH_INVALID_SESSION_ID")
+			return nil, nil, NewGuamError(AUTH_INVALID_USER_ID, nil)
 		}
 
 		return session, user, nil
@@ -301,7 +301,7 @@ func (a *Auth) getDatabaseSessionAndUser(
 
 func (a *Auth) validateSessionIdArgument(sessionId string) error {
 	if sessionId == "" {
-		return errors.New("AUTH_INVALID_SESSION_ID")
+		return NewGuamError(AUTH_INVALID_USER_ID, nil)
 	}
 
 	return nil
@@ -442,7 +442,7 @@ func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key
 	databaseKey, err := a.Adapter.GetKey(keyId)
 	if err != nil {
 		logger.Errorln("Key not found: ", keyId)
-		return nil, errors.New("AUTH_INVALID_KEY_ID")
+		return nil, NewGuamError(AUTH_INVALID_KEY_ID, nil)
 	}
 
 	hashedPassword := databaseKey.HashedPassword
@@ -450,19 +450,19 @@ func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key
 		logger.Info("Key includes password")
 		if password == nil {
 			logger.Errorln("Key password not provided", keyId)
-			return nil, errors.New("AUTH_INVALID_PASSWORD")
+			return nil, NewGuamError(AUTH_INVALID_PASSWORD, nil)
 		}
 
 		validPassword := a.PasswordHash.validate(*password, *hashedPassword)
 		if !validPassword {
 			logger.Errorln("Incorrect key password", *password)
-			return nil, errors.New("AUTH_INVALID_PASSWORD")
+			return nil, NewGuamError(AUTH_INVALID_PASSWORD, nil)
 		}
 		logger.Infoln("Validated key password")
 	} else {
 		if password != nil {
 			logger.Errorln("Incorrect key password", *password)
-			return nil, errors.New("AUTH_INVALID_PASSWORD")
+			return nil, NewGuamError(AUTH_INVALID_PASSWORD, nil)
 		}
 		logger.Infoln("No password included in key")
 	}
