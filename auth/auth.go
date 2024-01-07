@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/rohitp934/guam/utils"
-
 	"go.uber.org/zap"
 )
 
@@ -48,6 +47,10 @@ const (
 type User struct {
 	UserAttributes map[string]interface{}
 	UserId         string
+}
+
+func Guam(config Configuration) (*Auth, error) {
+	return NewAuth(config)
 }
 
 type (
@@ -91,7 +94,7 @@ type PasswordHash struct {
 }
 
 type Experimental struct {
-	debugMode bool
+	DebugMode bool
 }
 
 func validateConfiguration(config Configuration) error {
@@ -138,7 +141,15 @@ func NewAuth(config Configuration) (*Auth, error) {
 		}
 	}
 
-	if auth.Experimental.debugMode {
+	if auth.PasswordHash.generate == nil {
+		auth.PasswordHash.generate = utils.GenerateScryptHash
+	}
+
+	if auth.PasswordHash.validate == nil {
+		auth.PasswordHash.validate = utils.ValidateScryptHash
+	}
+
+	if auth.Experimental.DebugMode {
 		l, err := zap.NewDevelopment()
 		if err != nil {
 			logger = zap.NewNop().Sugar()
@@ -151,6 +162,8 @@ func NewAuth(config Configuration) (*Auth, error) {
 		}
 		logger = l.Sugar()
 	}
+
+	logger.Debugln("Auth initialized")
 
 	return auth, nil
 }
@@ -168,8 +181,8 @@ func getSessionExpires(config Configuration) SessionExpires {
 		}
 	}
 	return SessionExpires{
-		ActivePeriod: int64(activePeriod),
-		IdlePeriod:   int64(idlePeriod),
+		ActivePeriod: int64(activePeriod / time.Millisecond),
+		IdlePeriod:   int64(idlePeriod / time.Millisecond),
 	}
 }
 
@@ -343,27 +356,27 @@ func (a *Auth) GetUser(userId string) (*User, error) {
 }
 
 type CreateUserKey struct {
-	password       *string
-	providerId     string
-	providerUserId string
+	Password       *string
+	ProviderId     string
+	ProviderUserId string
 }
 type CreateUserOptions struct {
-	userId     *string
-	key        *CreateUserKey
-	attributes map[string]any
+	UserId     *string
+	Key        *CreateUserKey
+	Attributes map[string]any
 }
 
 func (a *Auth) CreateUser(options CreateUserOptions) *User {
 	var userId string
-	if options.userId != nil {
-		userId = *options.userId
+	if options.UserId != nil {
+		userId = *options.UserId
 	} else {
 		userId = utils.GenerateRandomString(15, "")
 	}
 
 	var userAttributes map[string]any
-	if options.attributes != nil {
-		userAttributes = options.attributes
+	if options.Attributes != nil {
+		userAttributes = options.Attributes
 	} else {
 		userAttributes = map[string]any{}
 	}
@@ -373,7 +386,7 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 		Attributes: userAttributes,
 	}
 
-	if options.key == nil {
+	if options.Key == nil {
 		err := a.Adapter.SetUser(databaseUser, nil)
 		if err != nil {
 			logger.Errorln("Error creating user")
@@ -382,13 +395,13 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 		return a.TransformDatabaseUser(databaseUser)
 	}
 
-	keyId, err := CreateKeyId(options.key.providerId, options.key.providerUserId)
+	keyId, err := CreateKeyId(options.Key.ProviderId, options.Key.ProviderUserId)
 	if err != nil {
 		logger.Errorln("Error creating key id")
 		return nil
 	}
 
-	password := options.key.password
+	password := options.Key.Password
 	var hashedPassword *string
 	if password != nil {
 		hash := a.PasswordHash.generate(*password)
@@ -397,11 +410,15 @@ func (a *Auth) CreateUser(options CreateUserOptions) *User {
 		hashedPassword = nil
 	}
 
-	a.Adapter.SetUser(databaseUser, &KeySchema{
+	err = a.Adapter.SetUser(databaseUser, &KeySchema{
 		ID:             keyId,
 		HashedPassword: hashedPassword,
 		UserID:         userId,
 	})
+	if err != nil {
+		logger.Errorln(err)
+		return nil
+	}
 	return a.TransformDatabaseUser(databaseUser)
 }
 
@@ -576,21 +593,21 @@ func (a *Auth) ValidateSession(sessionId string) (*Session, error) {
 }
 
 type CreateSessionOptions struct {
-	attributes map[string]any
-	sessionId  string
-	userId     string
+	Attributes map[string]any
+	SessionId  string
+	UserId     string
 }
 
 func (a *Auth) CreateSession(options CreateSessionOptions) (*Session, error) {
 	activePeriodExpiresAt, idlePeriodExpiresAt := a.getNewSessionExpiration(nil)
-	userId := options.userId
+	userId := options.UserId
 	var sessionId string
-	if options.sessionId != "" {
-		sessionId = options.sessionId
+	if options.SessionId != "" {
+		sessionId = options.SessionId
 	} else {
 		sessionId = utils.GenerateRandomString(40, "")
 	}
-	attributes := options.attributes
+	attributes := options.Attributes
 	dbSession := SessionSchema{
 		ID:            sessionId,
 		UserID:        userId,

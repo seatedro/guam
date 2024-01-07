@@ -17,7 +17,7 @@ type SessionCookieConfiguration struct {
 type SessionCookieAttributes struct {
 	SameSite string
 	Path     string
-	Domain   string
+	Domain   *string
 }
 
 type Cookie struct {
@@ -70,7 +70,7 @@ func NewSessionCookie(session *Session, options SessionOptions) *Cookie {
 		Secure:   options.env == ENV_PRODUCTION,
 		SameSite: &sameSite,
 		Path:     &path,
-		Domain:   &options.cookie.Attributes.Domain,
+		Domain:   options.cookie.Attributes.Domain,
 		Encode:   nil,
 		MaxAge:   nil,
 		Priority: nil,
