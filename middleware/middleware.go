@@ -60,3 +60,62 @@ func HttpMiddleware() auth.Middleware {
 		}
 	}
 }
+
+type FiberContext interface {
+	Set(key string, value string)
+	Method(override ...string) string
+	GetReqHeaders() map[string][]string
+}
+
+func Fiber() auth.Middleware {
+	return func(context auth.MiddlewareContext) auth.MiddlewareRequestContext {
+		c := context.Args[0].(FiberContext)
+		h := createHeadersFromObject(c.GetReqHeaders())
+		return auth.MiddlewareRequestContext{
+			Request: auth.MiddlewareRequest{
+				Method:  c.Method(),
+				Headers: h,
+			},
+			SetCookie: func(cookie auth.Cookie) {
+				serializedCookie, err := cookie.Serialize()
+				if err != nil {
+					return
+				}
+				c.Set("Set-Cookie", serializedCookie)
+			},
+		}
+	}
+}
+
+func Chi() auth.Middleware {
+	return HttpMiddleware()
+}
+
+func GorillaMux() auth.Middleware {
+	return HttpMiddleware()
+}
+
+type GinContext struct {
+	Request *http.Request
+	Header  func(key, value string)
+}
+
+func Gin() auth.Middleware {
+	return func(context auth.MiddlewareContext) auth.MiddlewareRequestContext {
+		c := context.Args[0].(GinContext)
+		h := createHeadersFromObject(c.Request.Header)
+		return auth.MiddlewareRequestContext{
+			Request: auth.MiddlewareRequest{
+				Method:  c.Request.Method,
+				Headers: h,
+			},
+			SetCookie: func(cookie auth.Cookie) {
+				serializedCookie, err := cookie.Serialize()
+				if err != nil {
+					return
+				}
+				c.Header("Set-Cookie", serializedCookie)
+			},
+		}
+	}
+}
