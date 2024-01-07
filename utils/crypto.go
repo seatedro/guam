@@ -3,10 +3,10 @@ package utils
 import (
 	"crypto/rand"
 	"fmt"
-	"github.com/rohitp934/guam/scrypt"
 	"math/big"
 	"strings"
 
+	"github.com/rohitp934/guam/scrypt"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -74,7 +74,7 @@ func ValidateScryptHash(s, hash string) bool {
 		return false
 	}
 	version, salt, key := arr[0], arr[1], arr[2]
-	if version != "s2" {
+	if version == "s2" {
 		targetKey := hashWithScrypt(norm.NFKC.String(s), salt, 16)
 		result := constantTimeEqual(targetKey, key)
 		return result
