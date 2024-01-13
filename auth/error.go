@@ -9,6 +9,10 @@ func (e *GuamError) Error() string {
 	return string(e.Message) + ": " + e.Detail
 }
 
+func (e *GuamError) Is(target error) bool {
+	return e.Error() == target.Error()
+}
+
 func NewGuamError(errorMsg ErrorMessage, detail *string) *GuamError {
 	if detail == nil {
 		return &GuamError{Message: errorMsg}

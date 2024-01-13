@@ -457,7 +457,7 @@ func (a *Auth) UseKey(providerId, providerUserId string, password *string) (*Key
 		return nil, err
 	}
 	databaseKey, err := a.Adapter.GetKey(keyId)
-	if err != nil {
+	if err != nil || databaseKey == nil {
 		logger.Errorln("Key not found: ", keyId)
 		return nil, NewGuamError(AUTH_INVALID_KEY_ID, nil)
 	}
@@ -775,25 +775,25 @@ func (a *Auth) HandleRequest(args ...any) *AuthRequest {
 }
 
 type CreateKeyOptions struct {
-	password       *string
-	userId         string
-	providerId     string
-	providerUserId string
+	Password       *string
+	UserId         string
+	ProviderId     string
+	ProviderUserId string
 }
 
 func (a *Auth) CreateKey(options CreateKeyOptions) *Key {
-	keyId, err := CreateKeyId(options.providerId, options.providerUserId)
+	keyId, err := CreateKeyId(options.ProviderId, options.ProviderUserId)
 	if err != nil {
 		logger.Errorln("Error creating key id")
 		return nil
 	}
 	var hashedPassword *string
-	if options.password != nil {
-		hash := a.PasswordHash.generate(*options.password)
+	if options.Password != nil {
+		hash := a.PasswordHash.generate(*options.Password)
 		hashedPassword = &hash
 	}
 
-	userId := options.userId
+	userId := options.UserId
 	a.Adapter.SetKey(KeySchema{
 		ID:             keyId,
 		UserID:         userId,
@@ -801,10 +801,10 @@ func (a *Auth) CreateKey(options CreateKeyOptions) *Key {
 	})
 
 	return &Key{
-		ProviderId:      options.providerId,
-		ProviderUserId:  options.providerUserId,
+		ProviderId:      options.ProviderId,
+		ProviderUserId:  options.ProviderUserId,
 		UserId:          userId,
-		PasswordDefined: options.password != nil,
+		PasswordDefined: options.Password != nil,
 	}
 }
 
