@@ -1,6 +1,6 @@
 package auth
 
-import "github.com/rohitp934/guam/utils"
+import "github.com/seatedro/guam/utils"
 
 func IsValidDatabaseSession(session *SessionSchema) bool {
 	return utils.IsWithinExpiration(session.IdleExpires)

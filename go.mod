@@ -1,4 +1,4 @@
-module github.com/rohitp934/guam
+module github.com/seatedro/guam
 
 go 1.21.0
 

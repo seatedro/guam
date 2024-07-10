@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"github.com/rohitp934/guam/utils"
+	"github.com/seatedro/guam/utils"
 )
 
 const DEFAULT_SESSION_COOKIE_NAME = "auth_session"

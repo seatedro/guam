@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/rohitp934/guam/scrypt"
+	"github.com/seatedro/guam/scrypt"
 	"golang.org/x/text/unicode/norm"
 )
 

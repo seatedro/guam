@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rohitp934/guam/auth"
+	"github.com/seatedro/guam/auth"
 )
 
 func createHeadersFromObject(headerObj map[string][]string) auth.Headers {

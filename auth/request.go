@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/rohitp934/guam/utils"
+	"github.com/seatedro/guam/utils"
 )
 
 type GuamRequest struct {

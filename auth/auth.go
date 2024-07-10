@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rohitp934/guam/utils"
+	"github.com/seatedro/guam/utils"
 	"go.uber.org/zap"
 )
 
